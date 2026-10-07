@@ -55,7 +55,8 @@ export function ResumeMachineSection({
   const Chevron = expanded ? ChevronDown : ChevronRight
   return (
     <>
-      <div className="grid h-7.5 grid-cols-[1.75rem_minmax(0,1fr)] items-center border-t border-worktree-sidebar-border hover:bg-worktree-sidebar-accent">
+      {/* The outermost group: the project's band, which every group under it steps down from. */}
+      <div className="grid h-8.5 grid-cols-[1.75rem_minmax(0,1fr)] items-center border-t border-border bg-[color-mix(in_srgb,var(--foreground)_5%,var(--worktree-sidebar-accent))] hover:bg-[color-mix(in_srgb,var(--foreground)_9%,var(--worktree-sidebar-accent))]">
         <span className="flex justify-center">
           {/* Ticks everything unless all already are, as a workspace's box does. */}
           <Checkbox

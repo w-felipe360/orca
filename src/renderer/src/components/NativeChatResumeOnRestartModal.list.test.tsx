@@ -80,6 +80,18 @@ it('uses the sidebar surface without a border around the resume list', async () 
   expect(list?.classList.contains('border')).toBe(false)
 })
 
+// It takes arrow keys, so it needs a role; a group also lets its aria-label name it.
+it('exposes the list as a named group', async () => {
+  rpc.mockResolvedValue({ sessions: offered })
+  await mount(<NativeChatResumeOnRestartModal />)
+  const list = document.querySelector('[role="group"][aria-label="Chats that would be resumed"]')
+  expect(list).not.toBeNull()
+  // The bands run edge to edge; the rounded, clipped container keeps the corners.
+  expect(list?.classList.contains('rounded-md')).toBe(true)
+  expect(list?.classList.contains('overflow-y-auto')).toBe(true)
+  expect(list?.className).not.toMatch(/\bp-/)
+})
+
 it('keeps initial focus inside the dialog with no resumable chats', async () => {
   rpc.mockResolvedValue({ sessions: [], failed: [failure('b')] })
   await mount(<NativeChatResumeOnRestartModal />)
@@ -187,6 +199,7 @@ it('disables Select all and the workspace checkbox while a resume runs', async (
 it('moves between the list’s checkboxes with the arrow keys', async () => {
   rpc.mockResolvedValue({ sessions: offered })
   await mount(<NativeChatResumeOnRestartModal />)
+  // This workspace has no repo the store knows, so no project row sits between.
   const order = [
     namedBox('Select all chats'),
     namedBox('Select all chats in workspace'),
