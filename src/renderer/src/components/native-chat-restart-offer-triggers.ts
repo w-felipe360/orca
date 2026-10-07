@@ -112,15 +112,16 @@ async function loadLaunchOffer(): Promise<void> {
   }
   // Failures left from an earlier launch are the status bar's to show; only a fresh offer of the
   // user's own chats asks. Another device's or an automation's alone never open the dialog.
-  if (read.kind !== 'answered' || ownCandidates(target, read.candidates).length === 0) {
+  const own = read.kind === 'answered' ? ownCandidates(target, read.candidates) : []
+  if (own.length === 0) {
     return
   }
   if (!resumeWithoutAsking) {
-    requestLaunchResumePrompt(LOCAL_RESTART_MACHINE)
+    requestLaunchResumePrompt(own)
     return
   }
   // Not awaited: nothing will ask, so other launch prompts need not wait for the resume to settle.
-  void resumeOwn(LOCAL_RESTART_MACHINE, ownCandidates(target, read.candidates))
+  void resumeOwn(LOCAL_RESTART_MACHINE, own)
 }
 
 /**

@@ -5,11 +5,14 @@ import { useNativeChatRestartOfferEnabled } from './native-chat-restart-offer-ga
 import {
   getNativeChatResumeOnRestartDialogRequest,
   markNativeChatResumeLaunchRequestShown,
+  markNativeChatResumeLocalInterruptionsPresented,
   NATIVE_CHAT_RESUME_DIALOG_TOKEN,
   subscribeNativeChatResumeOnRestartDialog,
   type NativeChatResumeOnRestartDialogRequest
 } from './native-chat-resume-on-restart-dialog'
 import { dismissReconnectRestartOffers } from './native-chat-restart-reconnect-toast'
+import { LOCAL_RESTART_MACHINE } from './native-chat-restart-machines'
+import { restartInterruptionKey } from './native-chat-restart-decided'
 import { useNativeChatRestartOffers } from './native-chat-resume-on-restart-store'
 import { useMachineViews, type MachineView } from './native-chat-resume-machine-views'
 import {
@@ -56,6 +59,11 @@ export function useNativeChatResumeDialogOpening(): {
       return
     }
     markNativeChatResumeLaunchRequestShown()
+    // This computer's chats the user has now seen; the launch's own ask never repeats them.
+    const here = machines.find((machine) => machine.machine === LOCAL_RESTART_MACHINE)
+    markNativeChatResumeLocalInterruptionsPresented(
+      here?.offer.candidates.map(restartInterruptionKey) ?? []
+    )
     markNativeChatRestartOffersShown(
       machines.map((machine) => ({
         machine: machine.machine,

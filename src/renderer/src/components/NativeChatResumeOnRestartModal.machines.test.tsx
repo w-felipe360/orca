@@ -245,7 +245,7 @@ it("keeps the user's ticks and open machine when this computer's launch read lan
   expect(button('Resume 3 chats')).toBeTruthy()
   await act(async () => machineToggle('studio-mac').click())
   expect(button('Resume 1 chat')).toBeTruthy()
-  await act(async () => requestLaunchResumePrompt('local'))
+  await act(async () => requestLaunchResumePrompt(localRows))
   expect(getNativeChatResumeOnRestartDialogRequest()).toEqual({
     origin: 'user',
     focus: 'environment:studio'
@@ -265,7 +265,7 @@ it('never opens by itself for a paired server once this computer has nothing to 
       </TooltipProvider>
     )
   )
-  await act(async () => requestLaunchResumePrompt('local'))
+  await act(async () => requestLaunchResumePrompt(localRows))
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   localRows = []
   await act(async () => {
@@ -316,7 +316,7 @@ it('keeps an open launch dialog when this computer’s chats run out while a ser
       </TooltipProvider>
     )
   )
-  await act(async () => requestLaunchResumePrompt('local'))
+  await act(async () => requestLaunchResumePrompt(localRows))
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   localRows = []
   await act(async () => {
@@ -359,6 +359,48 @@ it('dismisses a server’s restart toast once the dialog listing it opens', asyn
   expect(toast.dismiss).toHaveBeenCalledWith('native-chat-restart-reconnect:environment:studio')
 })
 
+// A server's chats opened from its toast before this computer's launch read answers show nothing of
+// this computer; closing that dialog must not swallow this computer's own offer, which then shows
+// itself after the crash report and the tip, with no status bar to fall back on.
+it('lets this computer’s offer show itself after a server-only dialog the user closed', async () => {
+  resetDialogRegistryForTests()
+  useAppStore.setState({ statusBarVisible: false })
+  localRows = []
+  await stage({ studio: [row('s1', 'own')] })
+  const registry = () => useDialogRegistry.getState()
+  act(() => registry().settleStartupSource('crash-report', 'ready', 'crash:c1'))
+  act(() => registry().dialogContentMounted('crash:c1'))
+  await open('environment:studio')
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Local')
+  await act(async () => button('Close').click())
+
+  localRows = [row('l1', 'own')]
+  await act(async () => void (await readNativeChatRestartMachine({ kind: 'local' })))
+  await act(async () => requestLaunchResumePrompt(localRows))
+  expect(getNativeChatResumeOnRestartDialogRequest()).toEqual({ origin: 'launch', focus: 'local' })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => registry().endDialog('crash:c1'))
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => registry().settleStartupSource('feature-tip', 'none'))
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Prompt l1')
+})
+
+// Seen once, this computer's chats are not asked about again by the launch; a newer interruption is.
+it('drops the launch’s ask about chats a user-opened dialog already showed, but not a new one', async () => {
+  await stage({ studio: [row('s1', 'own')] })
+  await open('environment:studio')
+  // Listed under its own machine row (collapsed, its chat ticked): the user has seen it.
+  expect(machineRow('Local').textContent).toContain('1 of 1')
+  await act(async () => button('Close').click())
+  await act(async () => requestLaunchResumePrompt(localRows))
+  expect(getNativeChatResumeOnRestartDialogRequest()).toBeNull()
+  await act(async () => requestLaunchResumePrompt([row('l2', 'own')]))
+  expect(getNativeChatResumeOnRestartDialogRequest()).toMatchObject({
+    origin: 'launch',
+    focus: 'local'
+  })
+})
+
 // A launch offer still waiting behind another dialog is not on screen: it may yet be dropped unseen,
 // so a server's restart is still announced, and only the dialog reaching the screen takes it down.
 it('announces a server restart while the launch offer waits its turn, and takes it down once shown', async () => {
@@ -374,7 +416,7 @@ it('announces a server restart while the launch offer waits its turn, and takes 
     )
   )
   act(() => useDialogRegistry.getState().dialogContentMounted('other:1'))
-  await act(async () => requestLaunchResumePrompt('local'))
+  await act(async () => requestLaunchResumePrompt(localRows))
   await stage({ studio: [row('s1', 'own')] })
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(vi.mocked(toast).mock.calls.map(([title]) => title)).toEqual([

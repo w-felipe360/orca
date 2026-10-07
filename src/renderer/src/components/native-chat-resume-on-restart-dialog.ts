@@ -16,7 +16,9 @@ export type NativeChatResumeOnRestartDialogRequest = Readonly<{
 }>
 
 let pending: NativeChatResumeOnRestartDialogRequest | null = null
-let userAsked = false
+/** This computer's interruptions a resume dialog has shown on screen this launch, by
+ *  `restartInterruptionKey`. Another machine's offer shown alone never counts. */
+const presentedHere = new Set<string>()
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -25,19 +27,31 @@ function notify(): void {
   }
 }
 
+/** Whether the launch's own ask would only repeat what the user has: a dialog they opened is up
+ *  (joining it would move its focus and reset their ticks; it lists this computer anyway), or
+ *  every interruption it asks about was already on screen. Without its interruptions named, any of
+ *  this computer's having been shown counts. */
+function launchAskRedundant(asksAbout: readonly string[] | undefined): boolean {
+  if (pending?.origin === 'user') {
+    return true
+  }
+  return asksAbout
+    ? asksAbout.length > 0 && asksAbout.every((key) => presentedHere.has(key))
+    : presentedHere.size > 0
+}
+
 // Why: the launch load, the status-bar entry and a reconnect toast all open this dialog, and any
 // can fire before it subscribes. Keeping the request as an external snapshot prevents mount
 // ordering from losing it.
 export function requestNativeChatResumeOnRestartDialog(
   origin: NativeChatResumeDialogOrigin,
-  focus: RestartMachineKey | null = null
+  focus: RestartMachineKey | null = null,
+  /** For a launch ask: this computer's interruptions it is about. */
+  asksAbout?: readonly string[]
 ): void {
-  // The user already has the offer in hand, so the launch's own ask would repeat it; joining an
-  // open dialog it would also move its focus, resetting the user's ticks.
-  if (origin === 'launch' && userAsked) {
+  if (origin === 'launch' && launchAskRedundant(asksAbout)) {
     return
   }
-  userAsked ||= origin === 'user'
   // The same request again keeps the opening it already made, and with it the user's ticks.
   if (pending?.origin === origin && pending.focus === focus) {
     return
@@ -58,6 +72,13 @@ export function consumeNativeChatResumeOnRestartDialogRequest(): void {
 export function consumeNativeChatResumeOnRestartLaunchRequest(): void {
   if (pending?.origin === 'launch' && !pending.shown) {
     consumeNativeChatResumeOnRestartDialogRequest()
+  }
+}
+
+/** A resume dialog on screen listed these interruptions of this computer. */
+export function markNativeChatResumeLocalInterruptionsPresented(keys: readonly string[]): void {
+  for (const key of keys) {
+    presentedHere.add(key)
   }
 }
 
@@ -83,5 +104,5 @@ export function subscribeNativeChatResumeOnRestartDialog(listener: () => void): 
 /** @internal - tests need a clean module between cases. */
 export function _resetNativeChatResumeOnRestartDialog(): void {
   pending = null
-  userAsked = false
+  presentedHere.clear()
 }
