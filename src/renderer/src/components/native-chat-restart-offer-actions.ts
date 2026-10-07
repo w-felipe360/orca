@@ -14,6 +14,7 @@ import {
   type RestartMachineKey
 } from './native-chat-restart-machines'
 import { restartMachineName } from './native-chat-restart-machine-name'
+import { markNativeChatLaunchResumeDecided } from './native-chat-launch-resume-decision'
 import {
   currentRestartMachineFence,
   restartMachineCallFence,
@@ -141,6 +142,10 @@ async function continueOnMachine(
   }
   forgetUnsentResumes(machine, sessionIds)
   const { ticket, settle } = beginNativeChatRestartAction(target, reported)
+  if (target.kind === 'local') {
+    // `resuming` now names this computer's chats, so the launch's one resume decision is made.
+    markNativeChatLaunchResumeDecided()
+  }
   try {
     if (!sameRestartMachineFence(ticket.fence, offer.fence)) {
       return { ...base, kind: 'not-sent' }

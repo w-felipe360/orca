@@ -25,6 +25,7 @@ export function structuredHostStub(
     restartResumableDismissListed: vi.fn(async () => 0),
     restartResumeAll: vi.fn(async () => []),
     restartContinueAll: vi.fn(async () => ({ resumed: [], continued: [] })),
+    continueInterrupted: vi.fn(async () => ({ sessionId, outcome: 'superseded' })),
     attach: vi.fn(async () => ({ ok: true, replayed: false, value: { sessionId } })),
     // Attach-shaped entries take a client-supplied location, so the host is asked whether it
     // supports creating there. A real host always answers; leaving it unstubbed made every
@@ -118,7 +119,8 @@ export function installableHost(
       dismiss: hostCalls.restartResumableDismiss,
       dismissListed: hostCalls.restartResumableDismissListed,
       resume: hostCalls.restartResumeAll,
-      continueAfterRestart: hostCalls.restartContinueAll
+      continueAfterRestart: hostCalls.restartContinueAll,
+      continueInterrupted: hostCalls.continueInterrupted
     }
   }
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a spy map standing in for the host; the dispatcher reaches only the members stubbed above, and a missing one fails the call rather than type-checking.

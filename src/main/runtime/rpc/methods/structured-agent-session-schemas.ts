@@ -36,3 +36,4 @@ export {
   RestartResumableParams,
   RestartResumeParams
 } from '../../../../shared/rpc-contract/structured-agent-session-restart-params'
+export { ContinueInterruptedParams } from '../../../../shared/rpc-contract/structured-agent-session-continue-params'

@@ -9,7 +9,7 @@ import type { AgentSessionResumeTrigger } from '../../../shared/agent-session-re
 import { SUPERVISED_GRACEFUL_EXIT_MS } from '../../claude/claude-child-exit-proof-ladder'
 import { PROVIDER_SUPERVISOR_MAX_STOP_MS } from '../../provider-process/provider-process-supervisor'
 import { SNAPSHOT_DRAIN_TIMEOUT_MS } from './structured-agent-session-eviction'
-import type { StructuredAgentSessionRestartResume } from './structured-agent-session-restart-resume-surface'
+import type { StructuredAgentSessionRestartResume } from './structured-agent-session-restart-resume-contract'
 import {
   evictOwnedStructuredAgentSessions,
   type StructuredAgentSessionLifetimeContext
@@ -174,7 +174,8 @@ export async function flushStructuredAgentSessionHost(
               stopped: context.restartResume.confirmStopped
             }
           },
-          retainSessionIds
+          retainSessionIds,
+          context.trigger
         ),
       beginResumeMarkers: () => context.restartResume.beginTeardown(context.trigger),
       recordResumeMarkers: context.restartResume.recordMarkers,

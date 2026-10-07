@@ -55,8 +55,10 @@ export function ResumeMachineSection({
   const Chevron = expanded ? ChevronDown : ChevronRight
   return (
     <>
-      {/* The outermost group: the project's band, which every group under it steps down from. */}
-      <div className="grid h-8.5 grid-cols-[1.75rem_minmax(0,1fr)] items-center border-t border-border bg-[color-mix(in_srgb,var(--foreground)_5%,var(--worktree-sidebar-accent))] hover:bg-[color-mix(in_srgb,var(--foreground)_9%,var(--worktree-sidebar-accent))]">
+      {/* The header over this machine's boxes, never boxed itself: the project's band, in the
+          content area, with its checkbox in the column outside. Twice the list's gap sets it off
+          from the previous machine's boxes. */}
+      <div className="group/row mt-3 grid h-8.5 grid-cols-[1.75rem_minmax(0,1fr)] items-center first:mt-1.5">
         <span className="flex justify-center">
           {/* Ticks everything unless all already are, as a workspace's box does. */}
           <Checkbox
@@ -72,7 +74,7 @@ export function ResumeMachineSection({
         </span>
         <button
           type="button"
-          className="flex h-full min-w-0 cursor-pointer items-center gap-1.5 pr-2.5 text-left"
+          className="mr-1.5 flex h-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-[color-mix(in_srgb,var(--foreground)_5%,var(--worktree-sidebar-accent))] pr-2.5 pl-2 text-left group-hover/row:bg-[color-mix(in_srgb,var(--foreground)_9%,var(--worktree-sidebar-accent))]"
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
         >

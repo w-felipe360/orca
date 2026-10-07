@@ -27,13 +27,15 @@ import {
   resumeStructuredAgentSessionsFromRestart,
   StructuredAgentSessionResumeAdmission
 } from './structured-agent-session-restart-resume-runner'
+import type { StructuredAgentSessionRestartResume } from './structured-agent-session-restart-resume-contract'
 import {
-  restartContinuationDeps,
+  continuationDeps,
   startStructuredAgentSessionContinuation,
   type StructuredAgentSessionContinuationHost,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
 import { restartContinuationId } from './structured-agent-session-restart-continuation-envelope'
+import { createInterruptedContinuation } from './structured-agent-session-interrupted-continuation'
 import {
   createStructuredAgentSessionRestartOfferWithdrawal,
   type StructuredAgentSessionRestartOfferSession
@@ -46,9 +48,10 @@ import {
 } from './structured-agent-session-restart-action-result'
 import { structuredAgentSessionConversationFence } from './structured-agent-session-provider-child'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
-import type { StructuredAgentSessionRestartResume } from './structured-agent-session-restart-resume-surface'
 
 type LiveSession = StructuredAgentSessionRestartOfferSession
+
+export type { StructuredAgentSessionRestartResume }
 
 export function createStructuredAgentSessionRestartResume(
   deps: Pick<
@@ -222,7 +225,7 @@ export function createStructuredAgentSessionRestartResume(
     // never starts more agents at once than the runner allows; the provider's answer comes after.
     const action = await run(sessionIds, owner, audience, async (marker, continuationId) => {
       const started = await startStructuredAgentSessionContinuation(
-        restartContinuationDeps(continuationHost, marker),
+        continuationDeps(continuationHost, () => continuationHost.stillResumable(marker)),
         marker.sessionId,
         marker,
         continuationId
@@ -289,6 +292,7 @@ export function createStructuredAgentSessionRestartResume(
       ),
     dismissListed: failures.dismissListed,
     continueAfterRestart,
-    onAgentStarted: withdrawal.onAgentStarted
+    onAgentStarted: withdrawal.onAgentStarted,
+    continueInterrupted: createInterruptedContinuation(continuationHost, readMarkers)
   }
 }

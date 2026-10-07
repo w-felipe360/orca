@@ -120,11 +120,11 @@ it('puts each machine’s box in the list’s one checkbox column, indenting onl
   expect(machine.classList.contains(columns)).toBe(true)
   expect(workspace.classList.contains(columns)).toBe(true)
   expect(machine.firstElementChild?.contains(machineToggle('studio-mac'))).toBe(true)
-  // Nested one level under the machine: the workspace's content and its chats move right.
-  expect(workspace.querySelector<HTMLElement>(':scope > :nth-child(2)')?.style.paddingLeft).toBe(
-    '20px'
+  // Nested one level under the machine: the workspace's box, title and chats move right.
+  expect(workspace.querySelector<HTMLElement>(':scope > :nth-child(2)')?.style.marginLeft).toBe(
+    '40px'
   )
-  expect(chatBox('s1').closest('ul')?.style.getPropertyValue('--resume-chat-indent')).toBe('40px')
+  expect(chatBox('s1').closest('ul')?.style.getPropertyValue('--resume-chat-indent')).toBe('60px')
 
   const order = [
     namedBox('Select all chats'),
@@ -146,6 +146,22 @@ it('puts each machine’s box in the list’s one checkbox column, indenting onl
     })
     expect(document.activeElement).toBe(next)
   }
+})
+
+// A machine row heads its workspaces' boxes from outside them, and sits a step further from the
+// previous machine's boxes than one box from the next.
+it('heads each machine’s boxes from outside them, set apart from the machine before', async () => {
+  await stage({ sessions: [row('l1', 'own')] }, { studio: { sessions: SERVER_ROWS } })
+  await open('environment:studio')
+  await act(async () => machineRow(LOCAL).click())
+  const localBox = rowOf(namedBox('Select all chats in workspace-l1')).parentElement!
+  const studio = rowOf(machineToggle('studio-mac'))
+  // Each workspace box draws its border in the content area; the machine row is in none of them.
+  expect(localBox.querySelector(':scope > [aria-hidden="true"]')).not.toBeNull()
+  expect(studio.closest('.relative')).toBeNull()
+  expect(localBox.compareDocumentPosition(studio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(studio.classList.contains('mt-3')).toBe(true)
+  expect(localBox.classList.contains('my-1.5')).toBe(true)
 })
 
 it('ticks and clears only its own machine’s chats from a machine’s tri-state box', async () => {

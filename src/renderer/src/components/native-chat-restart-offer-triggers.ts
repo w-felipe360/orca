@@ -28,6 +28,7 @@ import {
   type RestartMachineRead
 } from './native-chat-resume-on-restart-store'
 import { requestLaunchResumePrompt } from './native-chat-resume-on-restart-launch-prompt'
+import { markNativeChatLaunchResumeDecided } from './native-chat-launch-resume-decision'
 import {
   _resetNativeChatResumeOnRestartDialog,
   getNativeChatResumeOnRestartDialogRequest,
@@ -318,13 +319,14 @@ export function useNativeChatRestartOfferSources(
     }
   }, [ownsStartupDiscovery])
   useDialogDisposal('native-chat-resume-discovery', abandonDiscovery)
-  useEffect(() => {
-    watchPairedConnections()
-  }, [])
+  useEffect(watchPairedConnections, [])
   useEffect(() => {
     // Fetched after mount, never awaited by startup: the workspace is usable first. The read runs
     // whenever enabled, whatever discovery's own guards decide.
-    const launchRead = localEnabled ? (launch ??= loadLaunchOffer()) : null
+    // Decided either way: in-chat Continue waits for it on this computer's chats.
+    const launchRead = localEnabled
+      ? (launch ??= loadLaunchOffer().finally(markNativeChatLaunchResumeDecided))
+      : null
     if (!ownsStartupDiscovery) {
       return
     }
