@@ -9,7 +9,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui'
 import { cn } from '@/lib/utils'
 import { handleImeOverlayEscape } from '@/lib/ime-overlay-escape'
 import { useImeTextFieldProps } from '@/lib/ime-text-field'
-import { DialogPresenceMarker } from '@/lib/dialog-presence'
+import { DialogEntryContent } from '@/lib/dialog-registry-entry'
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
@@ -73,21 +73,22 @@ function CommandDialog({
           onOpenAutoFocus={onOpenAutoFocus}
           onCloseAutoFocus={onCloseAutoFocus}
         >
-          <DialogPresenceMarker />
-          <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">
-            {description}
-          </DialogPrimitive.Description>
-          <Command
-            shouldFilter={shouldFilter}
-            className={cn(
-              '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3',
-              commandClassName
-            )}
-            {...commandRootProps}
-          >
-            {children}
-          </Command>
+          <DialogEntryContent>
+            <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
+            <DialogPrimitive.Description className="sr-only">
+              {description}
+            </DialogPrimitive.Description>
+            <Command
+              shouldFilter={shouldFilter}
+              className={cn(
+                '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3',
+                commandClassName
+              )}
+              {...commandRootProps}
+            >
+              {children}
+            </Command>
+          </DialogEntryContent>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

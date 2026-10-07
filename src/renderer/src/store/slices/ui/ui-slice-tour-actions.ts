@@ -7,12 +7,14 @@ import {
   getPreviousVisibleContextualTourStepIndex
 } from '../../../components/contextual-tours/contextual-tour-gate'
 import { hasFeatureInteraction } from '../../../../../shared/feature-interactions'
-import { selectTourBlockedByPrompts } from './automatic-prompt-turns'
+import { useDialogRegistry } from '../../dialog-registry'
+import { selectTourBlocked, selectTourParentToken } from '../../dialog-registry-state'
 
 export function createUiTourActions(set: UISliceSet, get: UISliceGet): Partial<UISlice> {
   return {
     contextualToursSeenIds: [],
     contextualToursAutoEligible: null,
+    contextualToursAwaitingOnboarding: false,
     activeContextualTourId: null,
     activeContextualTourStepIndex: 0,
     activeContextualTourSource: null,
@@ -21,7 +23,6 @@ export function createUiTourActions(set: UISliceSet, get: UISliceGet): Partial<U
     contextualTourNavigationInteractionSnapshot: {},
     activeContextualTourSuppressed: false,
     contextualTourShownThisSession: false,
-    contextualToursOnboardingVisible: false,
     lastCompletedContextualTourId: null,
     setContextualToursAutoEligible: (eligible) =>
       set((s) => {
@@ -33,11 +34,11 @@ export function createUiTourActions(set: UISliceSet, get: UISliceGet): Partial<U
         }
         return { contextualToursAutoEligible: eligible }
       }),
-    setContextualToursOnboardingVisible: (visible) =>
+    setContextualToursAwaitingOnboarding: (awaiting) =>
       set((s) =>
-        s.contextualToursOnboardingVisible === visible
+        s.contextualToursAwaitingOnboarding === awaiting
           ? s
-          : { contextualToursOnboardingVisible: visible }
+          : { contextualToursAwaitingOnboarding: awaiting }
       ),
     requestContextualTour: (id, source, wasFeaturePreviouslyInteracted, options) =>
       set((s) => {
@@ -46,12 +47,16 @@ export function createUiTourActions(set: UISliceSet, get: UISliceGet): Partial<U
           tour,
           persistedUIReady: s.persistedUIReady,
           autoEligible: options?.force === true || s.contextualToursAutoEligible === true,
-          onboardingVisible: s.contextualToursOnboardingVisible,
           seenIds: options?.force === true ? [] : s.contextualToursSeenIds,
           sessionConsumed: options?.force === true ? false : s.contextualTourShownThisSession,
           activeTourId: s.activeContextualTourId,
-          activeModal: s.activeModal,
-          blockingSurfaceVisible: selectTourBlockedByPrompts(s, options?.force === true),
+          blockingSurfaceVisible:
+            s.contextualToursAwaitingOnboarding ||
+            selectTourBlocked(
+              useDialogRegistry.getState(),
+              options?.force === true,
+              selectTourParentToken(useDialogRegistry.getState(), tour.allowedActiveModals)
+            ),
           targetExists: hasContextualTourTarget
         })
         if (decision.kind !== 'start') {

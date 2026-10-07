@@ -1,4 +1,8 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
+import { readLocalStructuredAgentSessionsHeld } from '@/runtime/local-structured-chats'
+import { readStartupDiscovery } from '@/startup/startup-discovery-read'
+import { useDialogDisposal } from '@/lib/dialog-registry-entry'
+import { useDialogRegistry } from '@/store/dialog-registry'
 import { isRuntimeHostContactRevoked } from '../../../shared/runtime-host-status'
 import { parseRestartOfferOrigin } from '../../../shared/restart-offer-origin'
 import { isWebClientLocation } from '@/lib/web-client-location'
@@ -27,7 +31,7 @@ import { requestLaunchResumePrompt } from './native-chat-resume-on-restart-launc
 import {
   _resetNativeChatResumeOnRestartDialog,
   getNativeChatResumeOnRestartDialogRequest,
-  markNativeChatResumeLaunchDecided
+  NATIVE_CHAT_RESUME_DIALOG_TOKEN
 } from './native-chat-resume-on-restart-dialog'
 import {
   _resetRestartDecidedMemory,
@@ -115,9 +119,8 @@ async function loadLaunchOffer(): Promise<void> {
     requestLaunchResumePrompt(LOCAL_RESTART_MACHINE)
     return
   }
-  // Nothing will ask, so other launch prompts need not wait for the resume to settle.
-  markNativeChatResumeLaunchDecided()
-  await resumeOwn(LOCAL_RESTART_MACHINE, ownCandidates(target, read.candidates))
+  // Not awaited: nothing will ask, so other launch prompts need not wait for the resume to settle.
+  void resumeOwn(LOCAL_RESTART_MACHINE, ownCandidates(target, read.candidates))
 }
 
 /**
@@ -295,19 +298,66 @@ function watchPairedConnections(): void {
 /**
  * Starts every source of restart offers. `localEnabled` gates only this computer's launch read:
  * settings arrive after the first render, so the read waits for the flag rather than being lost.
+ *
+ * The dialog's owner also `ownsStartupDiscovery`: it tells the dialogs that open by themselves when
+ * this computer's launch read has decided, so the resume offer takes its place after them. Only
+ * this computer's read is waited on; a paired server's never holds them. Other subscribers (the
+ * status entry) only read, so unmounting one never settles or abandons discovery.
  */
-export function useNativeChatRestartOfferSources(localEnabled: boolean): void {
+export function useNativeChatRestartOfferSources(
+  localEnabled: boolean,
+  options?: { ownsStartupDiscovery: boolean }
+): void {
+  const ownsStartupDiscovery = options?.ownsStartupDiscovery === true
+  const settingsLoaded = useAppStore((store) => store.settings !== null)
+  const persistedUIReady = useAppStore((store) => store.persistedUIReady)
+  const abandonDiscovery = useCallback(() => {
+    if (ownsStartupDiscovery) {
+      useDialogRegistry.getState().settleStartupSource('native-chat-resume', 'unavailable')
+    }
+  }, [ownsStartupDiscovery])
+  useDialogDisposal('native-chat-resume-discovery', abandonDiscovery)
   useEffect(() => {
     watchPairedConnections()
   }, [])
   useEffect(() => {
-    if (localEnabled) {
-      // Fetched after mount, never awaited by startup: the workspace is usable first.
-      // Decided either way, so other launch prompts stop waiting on this read. Only this
-      // computer's read is waited on; a paired server's never holds them.
-      launch ??= loadLaunchOffer().finally(markNativeChatResumeLaunchDecided)
+    // Fetched after mount, never awaited by startup: the workspace is usable first. The read runs
+    // whenever enabled, whatever discovery's own guards decide.
+    const launchRead = localEnabled ? (launch ??= loadLaunchOffer()) : null
+    if (!ownsStartupDiscovery) {
+      return
     }
-  }, [localEnabled])
+    if (!settingsLoaded) {
+      if (persistedUIReady) {
+        abandonDiscovery()
+      }
+      return
+    }
+    let cancelled = false
+    // A runtime that holds no chat reads nothing; that is decided as soon as it is known.
+    const read = launchRead ? launchRead.then(() => true) : readLocalStructuredAgentSessionsHeld()
+    void readStartupDiscovery(read).then((holds) => {
+      if (cancelled) {
+        return
+      }
+      if (holds === null) {
+        abandonDiscovery()
+      } else if (localEnabled || !holds) {
+        // The answer and the dialog it asks for enter together, so nothing slips in between.
+        const asked = getNativeChatResumeOnRestartDialogRequest() !== null
+        useDialogRegistry
+          .getState()
+          .settleStartupSource(
+            'native-chat-resume',
+            asked ? 'ready' : 'none',
+            asked ? NATIVE_CHAT_RESUME_DIALOG_TOKEN : undefined
+          )
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [abandonDiscovery, localEnabled, ownsStartupDiscovery, persistedUIReady, settingsLoaded])
 }
 
 /** @internal - tests need a clean module between cases: every offer, action and trigger. */

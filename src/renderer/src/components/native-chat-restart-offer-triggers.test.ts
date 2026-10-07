@@ -8,7 +8,6 @@ import { useAppStore } from '../store'
 import type { ResumeCandidate } from './native-chat-resume-on-restart-grouping'
 import {
   consumeNativeChatResumeOnRestartDialogRequest,
-  getNativeChatResumeLaunchDecided,
   getNativeChatResumeOnRestartDialogRequest,
   markNativeChatResumeLaunchRequestShown,
   requestNativeChatResumeOnRestartDialog
@@ -25,7 +24,9 @@ import {
   _resetNativeChatRestartOffer,
   useNativeChatRestartOfferSources
 } from './native-chat-restart-offer-triggers'
-import { renderHook } from '@testing-library/react'
+import { cleanup, renderHook } from '@testing-library/react'
+import { useDialogRegistry } from '@/store/dialog-registry'
+import { resetDialogRegistryForTests } from '@/store/dialog-registry-test-state'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
 import { pairedEnvironment, verifiedConnection } from './native-chat-restart-offer-test-support'
 
@@ -149,6 +150,7 @@ beforeEach(() => {
   window.localStorage.clear()
   _resetNativeChatRestartOffer()
   consumeNativeChatResumeOnRestartDialogRequest()
+  resetDialogRegistryForTests()
   useAppStore.setState(useAppStore.getInitialState(), true)
   useAppStore.setState({
     settings: { ...getDefaultSettings(''), experimentalStructuredNativeChat: false }
@@ -158,6 +160,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  // A mounted discovery owner would answer for the next case's launch.
+  cleanup()
   _resetNativeChatRestartOffer()
   consumeNativeChatResumeOnRestartDialogRequest()
   useAppStore.setState(useAppStore.getInitialState(), true)
@@ -610,15 +614,32 @@ it('forgets a server this desktop no longer pairs with', async () => {
   expect(window.localStorage.length).toBe(0)
 })
 
+/** This launch's startup answer for the resume offer, as the dialogs that open by themselves see it. */
+function resumeDiscovery(): string {
+  return useDialogRegistry.getState().startupSources['native-chat-resume']
+}
+
 // Only this computer's launch read raises the dialog by itself and decides the launch wait.
 it("asks for this computer's launch turn and decides the wait when its read decides", async () => {
   mocks.rpc.mockImplementation(async (target) =>
     target.kind === 'local' ? { sessions: [row('l1', 'own')] } : { sessions: [] }
   )
-  expect(getNativeChatResumeLaunchDecided()).toBe(false)
-  renderHook(() => useNativeChatRestartOfferSources(true))
-  await vi.waitFor(() => expect(getNativeChatResumeLaunchDecided()).toBe(true))
+  expect(resumeDiscovery()).toBe('pending')
+  renderHook(() => useNativeChatRestartOfferSources(true, { ownsStartupDiscovery: true }))
+  await vi.waitFor(() => expect(resumeDiscovery()).toBe('ready'))
   expect(getNativeChatResumeOnRestartDialogRequest()).toEqual({ origin: 'launch', focus: 'local' })
+  expect(useDialogRegistry.getState().dialogEntries.map((entry) => entry.token)).toEqual([
+    'native-chat-resume'
+  ])
+})
+
+// The status entry reads offers too, but only the dialog's owner answers for this launch.
+it('settles nothing for this launch from a subscriber that does not own discovery', async () => {
+  const { unmount } = renderHook(() => useNativeChatRestartOfferSources(true))
+  await vi.waitFor(() => expect(getNativeChatRestartOffers().get('local')).toBeDefined())
+  unmount()
+  await Promise.resolve()
+  expect(resumeDiscovery()).toBe('pending')
 })
 
 // The launch asks about the user's own chats here; an automation's or another device's alone never
@@ -631,8 +652,14 @@ it.each(['automation', 'other-device', 'server-made'] as const)(
     )
     for (let launch = 0; launch < 2; launch += 1) {
       _resetNativeChatRestartOffer()
-      renderHook(() => useNativeChatRestartOfferSources(true))
-      await vi.waitFor(() => expect(getNativeChatResumeLaunchDecided()).toBe(true))
+      resetDialogRegistryForTests()
+      const { unmount } = renderHook(() =>
+        useNativeChatRestartOfferSources(true, { ownsStartupDiscovery: true })
+      )
+      await vi.waitFor(() => expect(resumeDiscovery()).toBe('none'))
+      unmount()
+      // Losing the owner abandons its discovery once the commit settles.
+      await Promise.resolve()
       expect(getNativeChatResumeOnRestartDialogRequest()).toBeNull()
       expect(getNativeChatRestartOffers().get('local')?.candidates).toHaveLength(1)
     }
@@ -643,5 +670,5 @@ it('never opens the dialog by itself for a paired server, nor counts toward the 
   await connect({ runtimeId: 'r2' })
   expect(toast).toHaveBeenCalledTimes(1)
   expect(getNativeChatResumeOnRestartDialogRequest()).toBeNull()
-  expect(getNativeChatResumeLaunchDecided()).toBe(false)
+  expect(resumeDiscovery()).toBe('pending')
 })

@@ -78,8 +78,6 @@ type CrashReportDialogSurfaceProps = {
   submitting: boolean
   /** Sends through the owner, which settles the report even if this dialog is gone by then. */
   onSubmit: (request: CrashReportSendRequest) => Promise<CrashReportSubmitResult>
-  /** Runs once this content is on screen, which a lazy load can delay past being asked to open. */
-  onShown?: () => void
 }
 
 export function CrashReportDialogSurface({
@@ -89,8 +87,7 @@ export function CrashReportDialogSurface({
   onOpenChange,
   onReportChange,
   submitting,
-  onSubmit,
-  onShown
+  onSubmit
 }: CrashReportDialogSurfaceProps): React.JSX.Element {
   const mountedRef = useMountedRef()
   const [notes, setNotes] = useState('')
@@ -132,12 +129,6 @@ export function CrashReportDialogSurface({
   }, [mountedRef])
 
   useEffect(() => {
-    if (open) {
-      onShown?.()
-    }
-  }, [onShown, open])
-
-  useEffect(() => {
     if (!open) {
       clearViewer()
       return
@@ -176,11 +167,12 @@ export function CrashReportDialogSurface({
     }
   }
 
-  const handleDismiss = async (): Promise<void> => {
-    await dismissReportIfNeeded()
-    if (mountedRef.current) {
-      onOpenChange(false)
-    }
+  // Bookkeeping never holds a closing dialog open: it closes whatever the dismissal answers.
+  const closeAndDismiss = (): void => {
+    void dismissReportIfNeeded().catch((error) => {
+      console.error('Failed to dismiss crash report:', error)
+    })
+    onOpenChange(false)
   }
 
   const handleSubmit = async (): Promise<void> => {
@@ -217,11 +209,7 @@ export function CrashReportDialogSurface({
         }
         if (!nextOpen) {
           clearViewer()
-          void dismissReportIfNeeded().finally(() => {
-            if (mountedRef.current) {
-              onOpenChange(false)
-            }
-          })
+          closeAndDismiss()
           return
         }
         onOpenChange(true)
@@ -329,7 +317,7 @@ export function CrashReportDialogSurface({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={handleDismiss}
+            onClick={closeAndDismiss}
             disabled={submitting}
           >
             {translate('auto.components.crash.report.CrashReportDialog.88fea8e84e', "Don't Send")}

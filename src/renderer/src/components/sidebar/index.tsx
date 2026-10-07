@@ -248,7 +248,6 @@ function Sidebar({
 
       {/* Dialogs render outside sidebar to avoid clipping. Lazy-load them only
       for the modal that needs their flow-specific hooks and UI. */}
-      {/* A modal surface, so a dialog that fails here releases the modal slot it holds. */}
       <RecoverableRenderErrorBoundary
         boundaryId="modal.sidebar-dialogs"
         surface="modal"

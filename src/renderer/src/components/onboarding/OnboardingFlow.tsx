@@ -1,3 +1,4 @@
+import { DialogEntryContent } from '@/lib/dialog-registry-entry'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { isEditableTarget } from '@/lib/editable-target'
@@ -15,7 +16,6 @@ import { OnboardingFooter } from './OnboardingFooter'
 import { shouldRequestOnboardingSkipConfirmation } from './onboarding-dismiss-target'
 import logo from '../../../../../resources/logo.svg'
 import { translate } from '@/i18n/i18n'
-import { usePromptBlockingDialog } from '@/components/automatic-prompts/use-automatic-prompt-turn'
 
 const stepCopy = {
   agent: {
@@ -128,8 +128,6 @@ export default function OnboardingFlow({
   onOnboardingChange
 }: OnboardingFlowProps): React.JSX.Element {
   const flow = useOnboardingFlow(onboarding, onOnboardingChange)
-  // Mounted only while shown; a crash report from a first-run crash waits until setup is done.
-  usePromptBlockingDialog('onboarding', true)
   const continueShortcutModifierLabel = getScreenSubmitModifierLabel()
   const { currentStep, stepIndex, busyLabel } = flow
   const copy = stepCopy[currentStep.id]
@@ -227,6 +225,7 @@ export default function OnboardingFlow({
             'max-w-[1100px]'
           )}
         >
+          <DialogEntryContent kind="onboarding" />
           <div className="relative flex h-full min-h-0 flex-col px-6 pb-6 pt-8 sm:px-8 sm:pb-8 sm:pt-9">
             <div className="flex items-center gap-3 text-base font-semibold tracking-tight">
               <img

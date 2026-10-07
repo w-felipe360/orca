@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
-import type { ContextualTourId } from '../../../../shared/contextual-tours'
+import { getContextualTour, type ContextualTourId } from '../../../../shared/contextual-tours'
 import {
   hasFeatureInteraction,
   type FeatureInteractionState
 } from '../../../../shared/feature-interactions'
 import { useAppStore } from '@/store'
-import { selectTourBlockedByPrompts } from '@/store/slices/ui/automatic-prompt-turns'
+import { useDialogRegistry } from '@/store/dialog-registry'
+import { selectTourBlocked, selectTourParentToken } from '@/store/dialog-registry-state'
 
 const TOUR_SOURCES = {
   'workspace-board': 'workspace_board_visible',
@@ -67,7 +68,6 @@ export function useContextualTour(
   const suppressContextualTour = useAppStore((s) => s.suppressContextualTour)
   const recordFeatureInteraction = useAppStore((s) => s.recordFeatureInteraction)
   const persistedUIReady = useAppStore((s) => s.persistedUIReady)
-  const activeModal = useAppStore((s) => s.activeModal)
   const activeContextualTourId = useAppStore((s) => s.activeContextualTourId)
   const activeContextualTourSource = useAppStore((s) => s.activeContextualTourSource)
   const activeContextualTourSourceDetached = useAppStore(
@@ -76,8 +76,10 @@ export function useContextualTour(
   const contextualToursSeenIds = useAppStore((s) => s.contextualToursSeenIds)
   const contextualToursAutoEligible = useAppStore((s) => s.contextualToursAutoEligible)
   const contextualTourShownThisSession = useAppStore((s) => s.contextualTourShownThisSession)
-  const contextualToursOnboardingVisible = useAppStore((s) => s.contextualToursOnboardingVisible)
-  const blockedByPrompts = useAppStore((s) => selectTourBlockedByPrompts(s, false))
+  const contextualToursAwaitingOnboarding = useAppStore((s) => s.contextualToursAwaitingOnboarding)
+  const contextualToursBlockingSurfaceVisible = useDialogRegistry((s) =>
+    selectTourBlocked(s, false, selectTourParentToken(s, getContextualTour(id).allowedActiveModals))
+  )
   const enabledInteractionSnapshotRef = useRef<{
     id: ContextualTourId
     source: string
@@ -166,8 +168,8 @@ export function useContextualTour(
       typeof document === 'undefined' ||
       !persistedUIReady ||
       contextualToursAutoEligible !== true ||
-      contextualToursOnboardingVisible ||
-      blockedByPrompts ||
+      contextualToursAwaitingOnboarding ||
+      contextualToursBlockingSurfaceVisible ||
       activeContextualTourId !== null ||
       contextualTourShownThisSession ||
       contextualToursSeenIds.includes(id)
@@ -248,11 +250,10 @@ export function useContextualTour(
     }
   }, [
     activeContextualTourId,
-    blockedByPrompts,
-    activeModal,
+    contextualToursBlockingSurfaceVisible,
     contextualToursAutoEligible,
+    contextualToursAwaitingOnboarding,
     contextualTourShownThisSession,
-    contextualToursOnboardingVisible,
     contextualToursSeenIds,
     enabled,
     id,

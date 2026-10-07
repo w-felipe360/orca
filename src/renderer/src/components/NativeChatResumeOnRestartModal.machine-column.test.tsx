@@ -5,6 +5,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { resetDialogRegistryForTests } from '../store/dialog-registry-test-state'
 import { useAppStore } from '../store'
 import { getDefaultSettings } from '../../../shared/constants'
 import { getHostContextLabel } from '../../../shared/worktree/host-context-labels'
@@ -82,6 +83,8 @@ function selectAllCount(): string | undefined {
 }
 
 beforeEach(() => {
+  // These cases are the offer alone, past the startup checks that go before it.
+  resetDialogRegistryForTests({ startupSettled: true })
   rpc.mockReset()
   _resetNativeChatRestartOffer()
   consumeNativeChatResumeOnRestartDialogRequest()

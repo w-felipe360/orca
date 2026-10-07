@@ -20,10 +20,10 @@ import {
   offered
 } from './native-chat-resume-on-restart-modal.test-support'
 import {
-  consumeNativeChatResumeOnRestartDialogRequest,
   getNativeChatResumeOnRestartDialogRequest,
   requestNativeChatResumeOnRestartDialog
 } from './native-chat-resume-on-restart-dialog'
+import { resetDialogRegistryForTests } from '../store/dialog-registry-test-state'
 import {
   getNativeChatRestartOffers,
   readNativeChatRestartMachine
@@ -74,7 +74,8 @@ function toasts(): unknown[][] {
 beforeEach(() => {
   rpc.mockReset()
   _resetNativeChatRestartOffer()
-  consumeNativeChatResumeOnRestartDialogRequest()
+  // These cases are the offer alone, past the startup checks that go before it.
+  resetDialogRegistryForTests({ startupSettled: true })
   vi.mocked(toast).mockClear()
   useAppStore.setState(useAppStore.getInitialState(), true)
   useAppStore.setState({
@@ -95,7 +96,6 @@ afterEach(() => {
   container.remove()
   useAppStore.setState(useAppStore.getInitialState(), true)
   _resetNativeChatRestartOffer()
-  consumeNativeChatResumeOnRestartDialogRequest()
 })
 
 it('keeps next-launch preference out of the current resume action', async () => {

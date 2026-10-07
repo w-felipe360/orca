@@ -3,6 +3,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { resetDialogRegistryForTests } from '../store/dialog-registry-test-state'
+import { useDialogRegistry } from '../store/dialog-registry'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
 import { getDefaultSettings } from '../../../shared/constants'
@@ -13,7 +15,6 @@ import type { ResumeCandidate } from './native-chat-resume-on-restart-grouping'
 import {
   consumeNativeChatResumeOnRestartDialogRequest,
   getNativeChatResumeOnRestartDialogRequest,
-  markNativeChatResumeLaunchDecided,
   requestNativeChatResumeOnRestartDialog
 } from './native-chat-resume-on-restart-dialog'
 import { requestLaunchResumePrompt } from './native-chat-resume-on-restart-launch-prompt'
@@ -96,6 +97,8 @@ function actionCalls(method: string): unknown[] {
 }
 
 beforeEach(() => {
+  // These cases are the offer alone, past the startup checks that go before it.
+  resetDialogRegistryForTests({ startupSettled: true })
   rpc.mockReset()
   vi.mocked(toast).mockClear()
   localRows = [row('l1', 'own')]
@@ -253,7 +256,8 @@ it("keeps the user's ticks and open machine when this computer's launch read lan
 
 it('never opens by itself for a paired server once this computer has nothing to offer', async () => {
   await stage({ studio: [row('s1', 'own')] })
-  act(() => useAppStore.getState().setPromptBlockingDialogVisible('other:1', true))
+  // Another dialog is on screen, so the launch's own offer waits its turn.
+  act(() => useDialogRegistry.getState().dialogContentMounted('other:1'))
   await act(async () =>
     root.render(
       <TooltipProvider>
@@ -261,15 +265,13 @@ it('never opens by itself for a paired server once this computer has nothing to 
       </TooltipProvider>
     )
   )
-  await act(async () => {
-    requestLaunchResumePrompt('local')
-    markNativeChatResumeLaunchDecided()
-  })
+  await act(async () => requestLaunchResumePrompt('local'))
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
   localRows = []
   await act(async () => {
     await readNativeChatRestartMachine({ kind: 'local' })
   })
-  await act(async () => useAppStore.getState().setPromptBlockingDialogVisible('other:1', false))
+  await act(async () => useDialogRegistry.getState().dialogContentUnmounted('other:1'))
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(getNativeChatResumeOnRestartDialogRequest()).toBeNull()
 })
@@ -314,10 +316,7 @@ it('keeps an open launch dialog when this computer’s chats run out while a ser
       </TooltipProvider>
     )
   )
-  await act(async () => {
-    requestLaunchResumePrompt('local')
-    markNativeChatResumeLaunchDecided()
-  })
+  await act(async () => requestLaunchResumePrompt('local'))
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   localRows = []
   await act(async () => {
@@ -358,6 +357,36 @@ it('dismisses a server’s restart toast once the dialog listing it opens', asyn
   await stage({ studio: [row('s1', 'own')] })
   await open('environment:studio')
   expect(toast.dismiss).toHaveBeenCalledWith('native-chat-restart-reconnect:environment:studio')
+})
+
+// A launch offer still waiting behind another dialog is not on screen: it may yet be dropped unseen,
+// so a server's restart is still announced, and only the dialog reaching the screen takes it down.
+it('announces a server restart while the launch offer waits its turn, and takes it down once shown', async () => {
+  // Interruptions an earlier case showed are remembered as decided; this one is new.
+  window.localStorage.clear()
+  vi.mocked(toast.dismiss).mockClear()
+  await stage({})
+  await act(async () =>
+    root.render(
+      <TooltipProvider>
+        <NativeChatResumeOnRestartModal />
+      </TooltipProvider>
+    )
+  )
+  act(() => useDialogRegistry.getState().dialogContentMounted('other:1'))
+  await act(async () => requestLaunchResumePrompt('local'))
+  await stage({ studio: [row('s1', 'own')] })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(vi.mocked(toast).mock.calls.map(([title]) => title)).toEqual([
+    'studio-mac restarted for an update'
+  ])
+  expect(toast.dismiss).not.toHaveBeenCalled()
+  expect(getNativeChatResumeOnRestartDialogRequest()).toEqual({ origin: 'launch', focus: 'local' })
+
+  await act(async () => useDialogRegistry.getState().dialogContentUnmounted('other:1'))
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(toast.dismiss).toHaveBeenCalledWith('native-chat-restart-reconnect:environment:studio')
+  expect(getNativeChatResumeOnRestartDialogRequest()).toMatchObject({ shown: true })
 })
 
 // The server's provider refused to carry the chat on: the host files the failure and lists it. One

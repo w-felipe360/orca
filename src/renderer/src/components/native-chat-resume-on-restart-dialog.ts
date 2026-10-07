@@ -3,6 +3,9 @@ import type { RestartMachineKey } from './native-chat-restart-machines'
 /** Who asked: the launch read raises it by itself and takes a turn; the user opens it at once. */
 export type NativeChatResumeDialogOrigin = 'launch' | 'user'
 
+/** The offer's one dialog entry, whoever asked: the user asking takes over a queued launch offer. */
+export const NATIVE_CHAT_RESUME_DIALOG_TOKEN = 'native-chat-resume'
+
 /** An open request: who asked, and the machine it was opened for (that row starts expanded). */
 export type NativeChatResumeOnRestartDialogRequest = Readonly<{
   origin: NativeChatResumeDialogOrigin
@@ -13,7 +16,7 @@ export type NativeChatResumeOnRestartDialogRequest = Readonly<{
 }>
 
 let pending: NativeChatResumeOnRestartDialogRequest | null = null
-let launchDecided = false
+let userAsked = false
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -29,11 +32,12 @@ export function requestNativeChatResumeOnRestartDialog(
   origin: NativeChatResumeDialogOrigin,
   focus: RestartMachineKey | null = null
 ): void {
-  // A dialog the user opened is already showing; this computer's launch read joining it must not
-  // move its focus, which would reset the user's ticks and collapse the machine they opened.
-  if (pending?.origin === 'user' && origin === 'launch') {
+  // The user already has the offer in hand, so the launch's own ask would repeat it; joining an
+  // open dialog it would also move its focus, resetting the user's ticks.
+  if (origin === 'launch' && userAsked) {
     return
   }
+  userAsked ||= origin === 'user'
   // The same request again keeps the opening it already made, and with it the user's ticks.
   if (pending?.origin === origin && pending.focus === focus) {
     return
@@ -69,20 +73,6 @@ export function getNativeChatResumeOnRestartDialogRequest(): NativeChatResumeOnR
   return pending
 }
 
-/** This launch's read of THIS computer has asked, resumed by itself, or found nothing; other launch
- *  prompts need not wait for it any longer. A paired server's read never holds them. */
-export function markNativeChatResumeLaunchDecided(): void {
-  if (launchDecided) {
-    return
-  }
-  launchDecided = true
-  notify()
-}
-
-export function getNativeChatResumeLaunchDecided(): boolean {
-  return launchDecided
-}
-
 export function subscribeNativeChatResumeOnRestartDialog(listener: () => void): () => void {
   listeners.add(listener)
   return () => {
@@ -93,5 +83,5 @@ export function subscribeNativeChatResumeOnRestartDialog(listener: () => void): 
 /** @internal - tests need a clean module between cases. */
 export function _resetNativeChatResumeOnRestartDialog(): void {
   pending = null
-  launchDecided = false
+  userAsked = false
 }

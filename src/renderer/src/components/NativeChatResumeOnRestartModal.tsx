@@ -15,7 +15,10 @@ import { translate } from '@/i18n/i18n'
 import { ResumeOnRestartGroups } from './NativeChatResumeOnRestartGroups'
 import { ResumeMachineSection } from './NativeChatResumeOnRestartMachineSection'
 import type { ResumeFailureAction } from './native-chat-resume-failure-guidance'
-import { consumeNativeChatResumeOnRestartDialogRequest } from './native-chat-resume-on-restart-dialog'
+import {
+  consumeNativeChatResumeOnRestartDialogRequest,
+  NATIVE_CHAT_RESUME_DIALOG_TOKEN
+} from './native-chat-resume-on-restart-dialog'
 import {
   continueNativeChatRestartOffers,
   dismissNativeChatRestartOffer
@@ -24,7 +27,7 @@ import { useNativeChatRestartResuming } from './native-chat-resume-on-restart-st
 import type { MachineView } from './native-chat-resume-machine-views'
 import { useNativeChatResumeDialogOpening } from './native-chat-resume-dialog-opening'
 import { actOnResumeRow } from './native-chat-resume-failure-action'
-import { AutomaticPromptDialogScope } from '@/lib/dialog-presence'
+import { DialogEntryScope } from '@/lib/dialog-registry-entry'
 import { resumeOwnershipLabel } from './native-chat-resume-ownership'
 import { resumeSelectionState } from './native-chat-resume-on-restart-grouping'
 import {
@@ -114,7 +117,7 @@ function moveCheckboxFocus(event: React.KeyboardEvent<HTMLElement>): void {
 }
 
 export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
-  const { machines, request, showing } = useNativeChatResumeDialogOpening()
+  const { machines, request, phase } = useNativeChatResumeDialogOpening()
   const updateSettings = useAppStore((store) => store.updateSettings)
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const resumeButtonRef = useRef<HTMLButtonElement>(null)
@@ -218,7 +221,8 @@ export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
   const actOnFailure = (machine: MachineView, action: ResumeFailureAction, sessionId: string) =>
     actOnResumeRow(machine, action, sessionId, persistPreference)
 
-  if (!request || !showing) {
+  // Drawn from its turn until its exit animation ends; the request is already gone while it closes.
+  if (phase === null || phase === 'queued' || machines.length === 0) {
     return null
   }
 
@@ -234,10 +238,10 @@ export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
     resumeOwnershipLabel(machine.ownershipFor(sessionId), machine.name)
 
   return (
-    // Raised by the launch, its own dialog never holds it back; opened by the user, it counts as one.
-    <AutomaticPromptDialogScope automatic={request.origin !== 'user'}>
+    // The content it commits is this entry's, whoever asked for it.
+    <DialogEntryScope token={NATIVE_CHAT_RESUME_DIALOG_TOKEN}>
       <Dialog
-        open
+        open={phase !== 'closing'}
         onOpenChange={(next) => {
           if (!next) {
             snooze()
@@ -341,7 +345,7 @@ export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
                   // Opened for this machine, or nothing on it starts ticked (so its empty box is
                   // explained), or it is the only machine listed.
                   const expandedByDefault =
-                    request.focus === machine.machine ||
+                    request?.focus === machine.machine ||
                     machines.length === 1 ||
                     !machine.rows.some((row) =>
                       resumeRowSelectedByDefault(
@@ -443,6 +447,6 @@ export function NativeChatResumeOnRestartModal(): React.JSX.Element | null {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AutomaticPromptDialogScope>
+    </DialogEntryScope>
   )
 }

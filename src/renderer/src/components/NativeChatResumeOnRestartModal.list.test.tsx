@@ -5,6 +5,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { resetDialogRegistryForTests } from '../store/dialog-registry-test-state'
 import { useAppStore } from '../store'
 import { getDefaultSettings } from '../../../shared/constants'
 import { NativeChatResumeOnRestartModal } from './NativeChatResumeOnRestartModal'
@@ -44,6 +45,8 @@ async function mount(node: React.ReactNode): Promise<void> {
 }
 
 beforeEach(() => {
+  // These cases are the offer alone, past the startup checks that go before it.
+  resetDialogRegistryForTests({ startupSettled: true })
   rpc.mockReset()
   _resetNativeChatRestartOffer()
   consumeNativeChatResumeOnRestartDialogRequest()

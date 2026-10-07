@@ -1,16 +1,15 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
+import { readStartupDiscovery } from '@/startup/startup-discovery-read'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import {
   REACT_ERROR_BOUNDARY_REPORT_AVAILABLE_EVENT,
-  takePendingReactErrorBoundaryReport
+  takePendingReactErrorBoundaryReports
 } from '@/lib/react-error-boundary-reporting'
-import {
-  useAutomaticPromptTurn,
-  usePromptBlockingDialog
-} from '@/components/automatic-prompts/use-automatic-prompt-turn'
-import { AutomaticPromptDialogScope } from '@/lib/dialog-presence'
-import { useAppStore } from '@/store'
+import { DialogEntryScope, useDialogDisposal } from '@/lib/dialog-registry-entry'
+import { useDialogRegistry } from '@/store/dialog-registry'
+import { selectAdmittedDialog } from '@/store/dialog-registry-state'
+import { RecoverableRenderErrorBoundary } from '../error-boundaries/RecoverableRenderErrorBoundary'
 import { useCrashReportSends } from './use-crash-report-sends'
 import type { CrashReportRecord } from '../../../../shared/crash-reporting'
 
@@ -20,139 +19,130 @@ const CrashReportDialogSurface = lazy(() =>
   }))
 )
 
-/** A report the app raises by itself, waiting for its turn among the other automatic prompts. */
-type AutomaticCrashReport = {
-  report: CrashReportRecord
-  /** A launch report keeps its place; error-boundary reports not yet shown give way to a newer one. */
-  origin: 'launch' | 'boundary'
-  /** The launch prompt is one-shot: acknowledged once actually shown, never before. */
-  acknowledgeOnShow: boolean
+/** Help > Report Crash's own entry. */
+const USER_DIALOG_TOKEN = 'crash-report-dialog:user'
+
+function crashReportToken(reportId: string): string {
+  return `crash-report:${reportId}`
 }
 
-function shownAutomatically(reportId: string): boolean {
-  return useAppStore
-    .getState()
-    .automaticPromptRequests.some(
-      (request) => request.id === 'crash-report' && request.key === reportId && request.shown
-    )
-}
+/** Help > Report Crash, opened over no report: the latest one, once loaded. */
+type UserDialog = { report: CrashReportRecord | null }
 
 export function CrashReportDialog(): React.JSX.Element | null {
   const promptedThisLaunch = useRef(false)
-  const acknowledgedIds = useRef(new Set<string>())
+  const pendingLaunchAckToken = useRef<string | null>(null)
   const mountedRef = useMountedRef()
-  // Help > Report Crash: the user asked, so it opens at once. Null while it is not open.
-  const [userDialog, setUserDialog] = useState<{ report: CrashReportRecord | null } | null>(null)
-  const userOpen = userDialog !== null
+  const [userDialog, setUserDialog] = useState<UserDialog | null>(null)
   const [loading, setLoading] = useState(false)
-  // Each report the app raises by itself waits its own turn; a later one never replaces it.
-  const [queue, setQueue] = useState<readonly AutomaticCrashReport[]>([])
-  const automatic = queue[0] ?? null
-  const [automaticVisible, markAutomaticShown] = useAutomaticPromptTurn(
-    'crash-report',
-    automatic !== null && !userOpen,
-    automatic?.report.id
-  )
-  usePromptBlockingDialog('crash-report', userOpen)
-  // Help > Report Crash over a report already on screen takes that same dialog over.
-  const onScreenReportRef = useRef<CrashReportRecord | null>(null)
-  useEffect(() => {
-    onScreenReportRef.current = automaticVisible ? (automatic?.report ?? null) : null
-  }, [automatic, automaticVisible])
-
-  const raiseCrashReport = useCallback(
-    (report: CrashReportRecord, origin: AutomaticCrashReport['origin']) => {
-      setQueue((current) => {
-        if (current.some((entry) => entry.report.id === report.id)) {
-          return current
-        }
-        // One fault can trip several boundaries; like a dialog replacing its report, only the
-        // newest of those not yet seen is offered.
-        const kept =
-          origin === 'boundary'
-            ? current.filter(
-                (entry) => entry.origin === 'launch' || shownAutomatically(entry.report.id)
-              )
-            : current
-        const acknowledgeOnShow = origin === 'launch' && report.status === 'pending'
-        return [...kept, { report, origin, acknowledgeOnShow }]
-      })
-    },
-    []
-  )
-
-  const loadUserCrashReport = useCallback(async (): Promise<void> => {
-    setLoading(true)
-    try {
-      const nextReport = await window.api.crashReports.getLatestReport()
-      if (mountedRef.current) {
-        setUserDialog((current) => current && { report: nextReport ?? current.report })
-      }
-    } catch (error) {
-      console.error('Failed to load crash report:', error)
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false)
-      }
+  const [reports, setReports] = useState<ReadonlyMap<string, CrashReportRecord>>(() => new Map())
+  const admitted = useDialogRegistry((s) => selectAdmittedDialog(s, 'crash-report'))
+  const admittedReport = admitted ? reports.get(admitted.token) : undefined
+  const ownedTokens = useRef(new Set<string>())
+  const disposeReports = useCallback(() => {
+    pendingLaunchAckToken.current = null
+    const registry = useDialogRegistry.getState()
+    for (const token of ownedTokens.current) {
+      registry.endDialog(token)
     }
-  }, [mountedRef])
+    registry.settleStartupSource('crash-report', 'unavailable')
+  }, [])
+  useDialogDisposal(USER_DIALOG_TOKEN, disposeReports)
 
-  useEffect(() => {
-    if (promptedThisLaunch.current) {
+  const raiseCrashReport = useCallback((report: CrashReportRecord) => {
+    const token = crashReportToken(report.id)
+    // Repeated delivery of an identical ID must not reopen a dismissed report.
+    if (ownedTokens.current.has(token)) {
       return
     }
-    promptedThisLaunch.current = true
-    void window.api.crashReports
-      .getLatestPending()
-      .then((pending) => {
-        if (pending && mountedRef.current) {
-          raiseCrashReport(pending, 'launch')
-        }
-      })
-      .catch((error) => console.error('Failed to load crash report:', error))
-  }, [mountedRef, raiseCrashReport])
+    ownedTokens.current.add(token)
+    setReports((current) => (current.has(token) ? current : new Map(current).set(token, report)))
+    useDialogRegistry.getState().enqueueAutomaticDialog(token, 'crash-report')
+  }, [])
 
   // By id, not by who opened it: a send started before Help took the dialog over lands either way.
   const changeReport = useCallback((report: CrashReportRecord | null) => {
     if (!report) {
       return
     }
-    setUserDialog((current) => (current?.report?.id === report.id ? { report } : current))
-    setQueue((current) =>
-      current.map((entry) => (entry.report.id === report.id ? { ...entry, report } : entry))
+    const token = crashReportToken(report.id)
+    setUserDialog((current) =>
+      current?.report?.id === report.id ? { ...current, report } : current
     )
+    setReports((current) => {
+      return current.has(token) ? new Map(current).set(token, report) : current
+    })
   }, [])
 
-  // Closing a report's dialog is done with that report, however it opened: one report, one dialog.
-  const closeReport = useCallback((reportId: string | undefined) => {
-    setUserDialog(null)
-    if (reportId !== undefined) {
-      setQueue((current) => current.filter((entry) => entry.report.id !== reportId))
+  // Done with a report however it opened: one report, one dialog.
+  const closeReport = useCallback((reportId: string | null) => {
+    if (reportId === null) {
+      return
     }
+    const token = crashReportToken(reportId)
+    useDialogRegistry.getState().closeDialog(token)
   }, [])
 
-  // A sent report is done wherever it is shown now; a dialog showing another report stays open.
   const { send, isSending } = useCrashReportSends(
     useCallback(
       (reportId: string | null, sent: CrashReportRecord | null) => {
         changeReport(sent)
+        // A dialog showing another report stays open.
         setUserDialog((current) => ((current?.report?.id ?? null) === reportId ? null : current))
-        if (reportId !== null) {
-          setQueue((current) => current.filter((entry) => entry.report.id !== reportId))
-        }
+        closeReport(reportId)
       },
-      [changeReport]
+      [changeReport, closeReport]
     )
   )
 
-  // From the committed dialog content: the lazy surface may load well after the turn is granted.
-  const onAutomaticShown = useCallback((): void => {
-    markAutomaticShown()
-    if (!automatic?.acknowledgeOnShow || acknowledgedIds.current.has(automatic.report.id)) {
+  useEffect(() => {
+    if (promptedThisLaunch.current) {
       return
     }
-    const { report } = automatic
-    acknowledgedIds.current.add(report.id)
+    promptedThisLaunch.current = true
+    void readStartupDiscovery(
+      window.api.crashReports.getLatestPending().then((report) => ({ report }))
+    ).then((result) => {
+      if (!mountedRef.current) {
+        // No owner left to show it; later dialogs must not wait on it.
+        useDialogRegistry.getState().settleStartupSource('crash-report', 'unavailable')
+        return
+      }
+      const pending = result?.report
+      if (pending) {
+        pendingLaunchAckToken.current =
+          pending.status === 'pending' ? crashReportToken(pending.id) : null
+        raiseCrashReport(pending)
+      }
+      useDialogRegistry
+        .getState()
+        .settleStartupSource(
+          'crash-report',
+          result === null ? 'unavailable' : pending ? 'ready' : 'none'
+        )
+    })
+  }, [mountedRef, raiseCrashReport])
+
+  useEffect(() => {
+    const raisePending = (): void => {
+      for (const report of takePendingReactErrorBoundaryReports()) {
+        raiseCrashReport(report)
+      }
+    }
+    raisePending()
+    window.addEventListener(REACT_ERROR_BOUNDARY_REPORT_AVAILABLE_EVENT, raisePending)
+    return () =>
+      window.removeEventListener(REACT_ERROR_BOUNDARY_REPORT_AVAILABLE_EVENT, raisePending)
+  }, [raiseCrashReport])
+
+  // From the committed content: the lazy surface may load well after the turn is granted.
+  const visibleToken = admitted?.phase === 'visible' ? admitted.token : null
+  useEffect(() => {
+    const report = visibleToken === null ? undefined : reports.get(visibleToken)
+    if (!report || visibleToken !== pendingLaunchAckToken.current) {
+      return
+    }
+    pendingLaunchAckToken.current = null
     // Why: startup crash prompts are one-shot. Never awaited: a failed write must not hold the
     // prompt back, and the dialog dismisses a still-pending report on close. Help > Report Crash
     // can still reopen dismissed unsent reports.
@@ -166,67 +156,81 @@ export function CrashReportDialog(): React.JSX.Element | null {
       .catch((error) => {
         console.error('Failed to dismiss crash report after startup prompt:', error)
       })
-  }, [automatic, changeReport, markAutomaticShown, mountedRef])
+  }, [changeReport, mountedRef, reports, visibleToken])
 
-  useEffect(() => {
-    return window.api.ui.onOpenCrashReport(() => {
-      // Pressed again while open, the dialog keeps the report it shows rather than starting over.
-      setUserDialog((current) => current ?? { report: onScreenReportRef.current })
-      void loadUserCrashReport()
-    })
-  }, [loadUserCrashReport])
-
-  useEffect(() => {
-    const pendingReport = takePendingReactErrorBoundaryReport()
-    if (pendingReport) {
-      raiseCrashReport(pendingReport, 'boundary')
-    }
-
-    const onReactErrorBoundaryReport = (): void => {
-      const nextReport = takePendingReactErrorBoundaryReport()
-      if (nextReport) {
-        raiseCrashReport(nextReport, 'boundary')
+  const loadUserCrashReport = useCallback(async (): Promise<void> => {
+    setLoading(true)
+    try {
+      const latest = await window.api.crashReports.getLatestReport()
+      if (mountedRef.current && latest) {
+        // Only into a dialog still waiting for one; a report already shown is never swapped.
+        setUserDialog((current) =>
+          current && current.report === null ? { report: latest } : current
+        )
+      }
+    } catch (error) {
+      console.error('Failed to load crash report:', error)
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false)
       }
     }
+  }, [mountedRef])
 
-    window.addEventListener(REACT_ERROR_BOUNDARY_REPORT_AVAILABLE_EVENT, onReactErrorBoundaryReport)
-    return () => {
-      window.removeEventListener(
-        REACT_ERROR_BOUNDARY_REPORT_AVAILABLE_EVENT,
-        onReactErrorBoundaryReport
-      )
-    }
-  }, [raiseCrashReport])
+  const reportOnScreen = admitted?.phase === 'visible'
+  useEffect(() => {
+    return window.api.ui.onOpenCrashReport(() => {
+      // A report dialog already up is the one Help would show: it stays as it is, notes and all.
+      if (userDialog !== null || reportOnScreen) {
+        return
+      }
+      setUserDialog({ report: null })
+      void loadUserCrashReport()
+    })
+  }, [loadUserCrashReport, reportOnScreen, userDialog])
 
-  const open = userOpen || automaticVisible
-  if (!open) {
+  if (userDialog === null && !admittedReport) {
     return null
   }
-  const report = userDialog ? userDialog.report : (automatic?.report ?? null)
+  const report = userDialog ? userDialog.report : (admittedReport ?? null)
+  const surfaceKey = userDialog ? USER_DIALOG_TOKEN : admitted?.token
+  const open = userDialog !== null || admitted?.phase !== 'closing'
 
   return (
-    // Raised by itself, its own dialog never counts as another one; opened from Help it is a user
-    // dialog like any other.
-    <AutomaticPromptDialogScope automatic={!userOpen}>
-      <Suspense fallback={null}>
-        <CrashReportDialogSurface
-          // One dialog per report: a new report starts fresh notes and viewer state, while Help over
-          // the report on screen keeps them.
-          key={report?.id ?? 'user'}
-          open={open}
-          report={report}
-          loading={userOpen && loading && report === null}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              closeReport(report?.id)
-            }
-          }}
-          onReportChange={changeReport}
-          submitting={isSending(report)}
-          onSubmit={(request) => send(report, request)}
-          onShown={userOpen ? undefined : onAutomaticShown}
-        />
-      </Suspense>
-    </AutomaticPromptDialogScope>
+    <DialogEntryScope
+      token={userDialog ? USER_DIALOG_TOKEN : (admitted?.token ?? USER_DIALOG_TOKEN)}
+    >
+      <RecoverableRenderErrorBoundary
+        boundaryId="modal.crash-report-content"
+        surface="modal"
+        reportAsCrash={false}
+        compact
+        key={surfaceKey}
+        onError={() => {
+          if (admitted && !userDialog) {
+            useDialogRegistry.getState().endDialog(admitted.token)
+          }
+          setUserDialog(null)
+        }}
+      >
+        <Suspense fallback={null}>
+          <CrashReportDialogSurface
+            key={surfaceKey}
+            open={open}
+            report={report}
+            loading={loading && report === null}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) {
+                setUserDialog(null)
+                closeReport(report?.id ?? null)
+              }
+            }}
+            onReportChange={changeReport}
+            submitting={isSending(report)}
+            onSubmit={(request) => send(report, request)}
+          />
+        </Suspense>
+      </RecoverableRenderErrorBoundary>
+    </DialogEntryScope>
   )
 }
